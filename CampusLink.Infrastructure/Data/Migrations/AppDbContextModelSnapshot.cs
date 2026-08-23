@@ -709,6 +709,9 @@ namespace CampusLink.Infrastructure.Data.Migrations
                     b.Property<int>("MeetingMode")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Message")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("RecipientId")
                         .HasColumnType("uuid");
 

@@ -30,6 +30,11 @@ public class StudyBuddyMatch : BaseEntity
     public bool IsCrossInstitution { get; set; }
     public MeetingMode MeetingMode { get; set; } = MeetingMode.InPerson;
 
+    // Optional note the requester sends with the request ("I'm stuck on graph
+    // traversal, want to work through past questions together?"). Kept on the
+    // match rather than as a Message so it survives with the request record.
+    public string Message { get; set; }
+
     public MatchStatus Status { get; set; } = MatchStatus.Pending;
 
     public DateTime RequestedAt { get; set; } = DateTime.UtcNow;

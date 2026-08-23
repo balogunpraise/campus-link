@@ -161,7 +161,9 @@ public static class InfrastructureServiceExtensions
     {
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IInstitutionService, InstitutionService>();
+        services.AddScoped<IStudyBuddyService, StudyBuddyService>();
         services.AddScoped<InstitutionSeeder>();
+        services.AddScoped<SubjectSeeder>();
 
         return services;
     }
@@ -176,7 +178,13 @@ public static class InfrastructureServiceExtensions
         await provider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
 
         if (seed)
+        {
             await provider.GetRequiredService<InstitutionSeeder>().SeedAsync();
+
+            // Subjects are the shared vocabulary study-buddy matching runs on,
+            // so an empty taxonomy means the feature can't be used at all.
+            await provider.GetRequiredService<SubjectSeeder>().SeedAsync();
+        }
 
         return host;
     }
