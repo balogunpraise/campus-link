@@ -106,10 +106,12 @@ public class SendStudyBuddyRequestRequest
     [Required]
     public Guid RecipientUserId { get; set; }
 
-    // Must be an interest both students list. This is what makes it a study
-    // buddy request rather than a cold message.
-    [Required]
-    public Guid SubjectId { get; set; }
+    // Optional. When given it must be an interest both students list — that's
+    // what the interest-matching flow sends, and it's what makes the request
+    // about something specific. Omitted for a directed request to someone found
+    // by name in the people directory, where a shared interest may not exist
+    // yet (a classmate, or someone who hasn't filled in a profile).
+    public Guid? SubjectId { get; set; }
 
     // Optional, and only valid when both students are at the same institution —
     // a course belongs to one school.

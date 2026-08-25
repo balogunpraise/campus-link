@@ -20,7 +20,10 @@ public class RepositoryManager : IRepositoryManager
     private readonly Lazy<IStudyBuddyMatchRepository> _studyBuddyMatches;
     private readonly Lazy<IStudyGroupRepository> _studyGroups;
     private readonly Lazy<IReviewRepository> _reviews;
-    private readonly Lazy<IMessageRepository> _messages;
+    private readonly Lazy<IConversationRepository> _conversations;
+    private readonly Lazy<IChatMessageRepository> _chatMessages;
+    private readonly Lazy<ICallRepository> _calls;
+    private readonly Lazy<IUserRepository> _users;
     private readonly Lazy<INotificationRepository> _notifications;
     private readonly Lazy<IRefreshTokenRepository> _refreshTokens;
 
@@ -42,7 +45,10 @@ public class RepositoryManager : IRepositoryManager
         _studyBuddyMatches = new Lazy<IStudyBuddyMatchRepository>(() => new StudyBuddyMatchRepository(context));
         _studyGroups = new Lazy<IStudyGroupRepository>(() => new StudyGroupRepository(context));
         _reviews = new Lazy<IReviewRepository>(() => new ReviewRepository(context));
-        _messages = new Lazy<IMessageRepository>(() => new MessageRepository(context));
+        _conversations = new Lazy<IConversationRepository>(() => new ConversationRepository(context));
+        _chatMessages = new Lazy<IChatMessageRepository>(() => new ChatMessageRepository(context));
+        _calls = new Lazy<ICallRepository>(() => new CallRepository(context));
+        _users = new Lazy<IUserRepository>(() => new UserRepository(context));
         _notifications = new Lazy<INotificationRepository>(() => new NotificationRepository(context));
         _refreshTokens = new Lazy<IRefreshTokenRepository>(() => new RefreshTokenRepository(context));
     }
@@ -58,7 +64,10 @@ public class RepositoryManager : IRepositoryManager
     public IStudyBuddyMatchRepository StudyBuddyMatches => _studyBuddyMatches.Value;
     public IStudyGroupRepository StudyGroups => _studyGroups.Value;
     public IReviewRepository Reviews => _reviews.Value;
-    public IMessageRepository Messages => _messages.Value;
+    public IConversationRepository Conversations => _conversations.Value;
+    public IChatMessageRepository ChatMessages => _chatMessages.Value;
+    public ICallRepository Calls => _calls.Value;
+    public IUserRepository Users => _users.Value;
     public INotificationRepository Notifications => _notifications.Value;
     public IRefreshTokenRepository RefreshTokens => _refreshTokens.Value;
 

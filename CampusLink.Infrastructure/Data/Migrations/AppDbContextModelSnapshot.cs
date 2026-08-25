@@ -166,7 +166,207 @@ namespace CampusLink.Infrastructure.Data.Migrations
                     b.HasIndex("InstitutionId", "StudentNumber")
                         .IsUnique();
 
+                    b.HasIndex(new[] { "FirstName" }, "IX_AspNetUsers_FirstName_Trgm");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex(new[] { "FirstName" }, "IX_AspNetUsers_FirstName_Trgm"), "gin");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex(new[] { "FirstName" }, "IX_AspNetUsers_FirstName_Trgm"), new[] { "gin_trgm_ops" });
+
+                    b.HasIndex(new[] { "LastName" }, "IX_AspNetUsers_LastName_Trgm");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex(new[] { "LastName" }, "IX_AspNetUsers_LastName_Trgm"), "gin");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex(new[] { "LastName" }, "IX_AspNetUsers_LastName_Trgm"), new[] { "gin_trgm_ops" });
+
+                    b.HasIndex(new[] { "UserName" }, "IX_AspNetUsers_UserName_Trgm");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex(new[] { "UserName" }, "IX_AspNetUsers_UserName_Trgm"), "gin");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex(new[] { "UserName" }, "IX_AspNetUsers_UserName_Trgm"), new[] { "gin_trgm_ops" });
+
                     b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.Call", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ConnectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("EndReason")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("StartedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StartedById");
+
+                    b.HasIndex("ConversationId", "Status", "StartedAt");
+
+                    b.ToTable("Calls");
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.CallParticipant", b =>
+                {
+                    b.Property<Guid>("CallId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Declined")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsCameraOn")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsMuted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsSharingScreen")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("JoinedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LeftAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("CallId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("CallParticipants");
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.ChatMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClientMessageId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Content")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EditedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReplyToMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SenderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReplyToMessageId");
+
+                    b.HasIndex("SenderId");
+
+                    b.HasIndex("ConversationId", "SentAt");
+
+                    b.ToTable("ChatMessages");
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.Conversation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DirectKey")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastMessageAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("StudyGroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("DirectKey")
+                        .IsUnique()
+                        .HasFilter("\"DirectKey\" IS NOT NULL");
+
+                    b.HasIndex("LastMessageAt");
+
+                    b.HasIndex("StudyGroupId");
+
+                    b.ToTable("Conversations");
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.ConversationParticipant", b =>
+                {
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("JoinedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LeftAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("MutedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("integer");
+
+                    b.HasKey("ConversationId", "UserId");
+
+                    b.HasIndex("UserId", "LeftAt");
+
+                    b.ToTable("ConversationParticipants");
                 });
 
             modelBuilder.Entity("CampusLink.Core.Domain.Entities.Course", b =>
@@ -409,36 +609,6 @@ namespace CampusLink.Infrastructure.Data.Migrations
                     b.HasIndex("CourseId");
 
                     b.ToTable("UserCourses");
-                });
-
-            modelBuilder.Entity("CampusLink.Core.Domain.Entities.Message", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Content")
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsRead")
-                        .HasColumnType("boolean");
-
-                    b.Property<Guid>("ReceiverId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("SenderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("SentAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ReceiverId");
-
-                    b.HasIndex("SenderId", "ReceiverId", "SentAt");
-
-                    b.ToTable("Messages");
                 });
 
             modelBuilder.Entity("CampusLink.Core.Domain.Entities.Notification", b =>
@@ -986,6 +1156,107 @@ namespace CampusLink.Infrastructure.Data.Migrations
                     b.Navigation("Institution");
                 });
 
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.Call", b =>
+                {
+                    b.HasOne("CampusLink.Core.Domain.Entities.Conversation", "Conversation")
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CampusLink.Core.Domain.Entities.AppUser", "StartedBy")
+                        .WithMany()
+                        .HasForeignKey("StartedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+
+                    b.Navigation("StartedBy");
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.CallParticipant", b =>
+                {
+                    b.HasOne("CampusLink.Core.Domain.Entities.Call", "Call")
+                        .WithMany("Participants")
+                        .HasForeignKey("CallId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CampusLink.Core.Domain.Entities.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Call");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.ChatMessage", b =>
+                {
+                    b.HasOne("CampusLink.Core.Domain.Entities.Conversation", "Conversation")
+                        .WithMany("Messages")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CampusLink.Core.Domain.Entities.ChatMessage", "ReplyToMessage")
+                        .WithMany()
+                        .HasForeignKey("ReplyToMessageId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("CampusLink.Core.Domain.Entities.AppUser", "Sender")
+                        .WithMany()
+                        .HasForeignKey("SenderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+
+                    b.Navigation("ReplyToMessage");
+
+                    b.Navigation("Sender");
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.Conversation", b =>
+                {
+                    b.HasOne("CampusLink.Core.Domain.Entities.AppUser", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CampusLink.Core.Domain.Entities.StudyGroup", "StudyGroup")
+                        .WithMany()
+                        .HasForeignKey("StudyGroupId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("StudyGroup");
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.ConversationParticipant", b =>
+                {
+                    b.HasOne("CampusLink.Core.Domain.Entities.Conversation", "Conversation")
+                        .WithMany("Participants")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CampusLink.Core.Domain.Entities.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("CampusLink.Core.Domain.Entities.Course", b =>
                 {
                     b.HasOne("CampusLink.Core.Domain.Entities.Institution", "Institution")
@@ -1107,25 +1378,6 @@ namespace CampusLink.Infrastructure.Data.Migrations
                     b.Navigation("Course");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("CampusLink.Core.Domain.Entities.Message", b =>
-                {
-                    b.HasOne("CampusLink.Core.Domain.Entities.AppUser", "Receiver")
-                        .WithMany()
-                        .HasForeignKey("ReceiverId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CampusLink.Core.Domain.Entities.AppUser", "Sender")
-                        .WithMany()
-                        .HasForeignKey("SenderId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Receiver");
-
-                    b.Navigation("Sender");
                 });
 
             modelBuilder.Entity("CampusLink.Core.Domain.Entities.Notification", b =>
@@ -1382,6 +1634,18 @@ namespace CampusLink.Infrastructure.Data.Migrations
                     b.Navigation("ShareRequestsMade");
 
                     b.Navigation("StudyBuddyProfile");
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.Call", b =>
+                {
+                    b.Navigation("Participants");
+                });
+
+            modelBuilder.Entity("CampusLink.Core.Domain.Entities.Conversation", b =>
+                {
+                    b.Navigation("Messages");
+
+                    b.Navigation("Participants");
                 });
 
             modelBuilder.Entity("CampusLink.Core.Domain.Entities.Course", b =>

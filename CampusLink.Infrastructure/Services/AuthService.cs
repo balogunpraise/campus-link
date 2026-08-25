@@ -242,10 +242,7 @@ public class AuthService(
         return await userManager.FindByNameAsync(trimmed);
     }
 
-    // Phone numbers are stored stripped of spaces, dashes and parentheses (the
-    // leading "+" is kept) so the same number typed three different ways still
-    // matches one row. Returns null for anything that isn't plausibly a phone
-    // number, which is how the caller knows to treat it as a username.
+    
     private static string NormalizePhone(string value)
     {
         if (string.IsNullOrWhiteSpace(value))

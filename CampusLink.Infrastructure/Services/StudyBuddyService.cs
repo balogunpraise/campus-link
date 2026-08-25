@@ -179,12 +179,21 @@ public class StudyBuddyService(
                 m => (m.RequesterId == userId && candidateIds.Contains(m.RecipientId)) ||
                      (m.RecipientId == userId && candidateIds.Contains(m.RequesterId)),
                 false)
-            .Select(m => new { m.RequesterId, m.RecipientId, m.Status })
+            .Select(m => new { m.RequesterId, m.RecipientId, m.Status, m.RequestedAt })
             .ToListAsync(cancellationToken);
 
-        var statusByUser = existing.ToDictionary(
-            m => m.RequesterId == userId ? m.RecipientId : m.RequesterId,
-            m => m.Status.ToString());
+        // A pair can have several rows over time: a pairing that ended may be
+        // retried. Collapse to the one the client should act on — a live
+        // request or pairing if there is one, otherwise the most recent.
+        var statusByUser = existing
+            .GroupBy(m => m.RequesterId == userId ? m.RecipientId : m.RequesterId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(m => m.Status is MatchStatus.Pending or MatchStatus.Accepted)
+                    .ThenByDescending(m => m.RequestedAt)
+                    .First()
+                    .Status
+                    .ToString());
 
         var items = rows.Select(r => new StudyBuddyCandidate
         {
@@ -227,25 +236,43 @@ public class StudyBuddyService(
         if (request.RecipientUserId == requesterId)
             return Fail("You can't send a study buddy request to yourself.", AuthErrorCode.ValidationFailed);
 
-        var me = await LoadProfileGraphAsync(requesterId, cancellationToken);
-        if (me is null)
-            return Fail(
-                "Create your study buddy profile first — a request has to be about a shared interest.",
-                AuthErrorCode.ValidationFailed);
+        // Profiles are optional on both sides. Requiring one would mean a
+        // student couldn't invite a classmate they looked up by name until that
+        // classmate had already opted into matching — which is backwards, since
+        // the invitation is usually what prompts them to.
+        var meUser = await repository.Users.GetWithInstitutionAsync(requesterId, false, cancellationToken);
+        var themUser = await repository.Users
+            .GetWithInstitutionAsync(request.RecipientUserId, false, cancellationToken);
 
+        if (meUser is null || themUser is null)
+            return Fail("That student doesn't exist.", AuthErrorCode.NotFound);
+
+        var me = await LoadProfileGraphAsync(requesterId, cancellationToken);
         var them = await LoadProfileGraphAsync(request.RecipientUserId, cancellationToken);
-        if (them is null || !them.IsActive)
+
+        // A profile that exists but is switched off is an explicit opt-out.
+        if (them is { IsActive: false })
             return Fail("That student isn't looking for a study buddy right now.", AuthErrorCode.NotFound);
 
-        // The heart of the feature: the request must be about an interest both
-        // students actually list.
-        if (me.PreferredSubjects.All(s => s.SubjectId != request.SubjectId))
-            return Fail("That subject isn't on your profile.", AuthErrorCode.ValidationFailed);
+        // When a subject is named the request is about a shared interest, and
+        // both sides must actually list it — that's the matching flow. When
+        // it's omitted the request came from the people directory, where the
+        // sender picked a specific person rather than an interest.
+        if (request.SubjectId.HasValue)
+        {
+            if (me is null)
+                return Fail(
+                    "Create your study buddy profile before sending a request about a subject.",
+                    AuthErrorCode.ValidationFailed);
 
-        if (them.PreferredSubjects.All(s => s.SubjectId != request.SubjectId))
-            return Fail("You and that student don't share that interest.", AuthErrorCode.ValidationFailed);
+            if (me.PreferredSubjects.All(s => s.SubjectId != request.SubjectId))
+                return Fail("That subject isn't on your profile.", AuthErrorCode.ValidationFailed);
 
-        var visibility = await CanReachAsync(me, them, cancellationToken);
+            if (them is null || them.PreferredSubjects.All(s => s.SubjectId != request.SubjectId))
+                return Fail("You and that student don't share that interest.", AuthErrorCode.ValidationFailed);
+        }
+
+        var visibility = await CanReachAsync(meUser, themUser, them?.MatchScope, cancellationToken);
         if (!visibility.Succeeded)
             return Result<StudyBuddyMatchResponse>.Failure(visibility.ErrorCode, visibility.Errors);
 
@@ -270,7 +297,7 @@ public class StudyBuddyService(
                 $"You have {outstanding} requests still waiting for a reply. Wait for some to be answered first.",
                 AuthErrorCode.Conflict);
 
-        var isCrossInstitution = me.User.InstitutionId != them.User.InstitutionId;
+        var isCrossInstitution = meUser.InstitutionId != themUser.InstitutionId;
 
         // A course belongs to one school, so it can't describe a cross-school
         // pairing — the database enforces this too.
@@ -291,7 +318,7 @@ public class StudyBuddyService(
             // either profile prefers.
             MeetingMode = isCrossInstitution
                 ? MeetingMode.Online
-                : request.MeetingMode ?? me.PreferredMeetingMode,
+                : request.MeetingMode ?? me?.PreferredMeetingMode ?? MeetingMode.InPerson,
 
             Status = MatchStatus.Pending,
             Message = string.IsNullOrWhiteSpace(request.Message) ? null : request.Message.Trim()
@@ -302,7 +329,7 @@ public class StudyBuddyService(
         await NotifyAsync(
             request.RecipientUserId,
             NotificationType.MatchRequestReceived,
-            $"{FullName(me.User)} wants to be your study buddy.",
+            $"{FullName(meUser)} wants to be your study buddy.",
             match.Id,
             cancellationToken);
 
@@ -418,29 +445,34 @@ public class StudyBuddyService(
     // Mirrors the repository's candidate filter for the single-target case: a
     // request must respect the same visibility rules the browse list does,
     // otherwise someone could guess a user id and bypass them.
+    //
+    // targetScope is null when the recipient has no study buddy profile. They
+    // haven't opted out — they just haven't opted in — so the directory rule
+    // applies instead: verified, discoverable, at a school that allows it.
     private async Task<Result<bool>> CanReachAsync(
-        StudyBuddyProfile me,
-        StudyBuddyProfile them,
+        AppUser me,
+        AppUser them,
+        VisibilityScope? targetScope,
         CancellationToken cancellationToken)
     {
-        if (me.User.InstitutionId == them.User.InstitutionId)
+        if (me.InstitutionId == them.InstitutionId)
             return Result<bool>.Success(true);
 
-        if (!them.User.AllowCrossInstitutionDiscovery ||
-            them.User.MembershipStatus != InstitutionMembershipStatus.Verified ||
-            !them.User.Institution.AllowsCrossInstitutionSharing)
+        if (!them.AllowCrossInstitutionDiscovery ||
+            them.MembershipStatus != InstitutionMembershipStatus.Verified ||
+            !them.Institution.AllowsCrossInstitutionSharing)
             return Result<bool>.Failure(
                 AuthErrorCode.NotFound, "That student isn't available for cross-institution matching.");
 
-        if (them.MatchScope == VisibilityScope.Global)
+        if (targetScope is null || targetScope == VisibilityScope.Global)
             return Result<bool>.Success(true);
 
-        if (them.MatchScope == VisibilityScope.PartnerInstitutions)
+        if (targetScope == VisibilityScope.PartnerInstitutions)
         {
             var partners = await repository.InstitutionPartnerships
-                .GetPartnerInstitutionIdsAsync(them.User.InstitutionId, cancellationToken);
+                .GetPartnerInstitutionIdsAsync(them.InstitutionId, cancellationToken);
 
-            if (partners.Contains(me.User.InstitutionId))
+            if (partners.Contains(me.InstitutionId))
                 return Result<bool>.Success(true);
         }
 

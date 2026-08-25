@@ -126,3 +126,59 @@ public enum PartnershipStatus
     Active,
     Ended
 }
+
+public enum ConversationType
+{
+    // Exactly two students, created on demand and deduplicated by DirectKey.
+    Direct = 0,
+
+    // Any number of students; may be attached to a StudyGroup.
+    Group = 1
+}
+
+public enum ParticipantRole
+{
+    Member = 0,
+
+    // Can rename the group, add and remove participants.
+    Admin = 1
+}
+
+public enum CallType
+{
+    Audio = 0,
+    Video = 1,
+
+    // Started as a screen share rather than escalating into one. Screen share
+    // is a track, not a separate connection, so this is only the initial intent.
+    ScreenShare = 2
+}
+
+public enum CallStatus
+{
+    // Invitations sent, nobody has answered yet.
+    Ringing = 0,
+
+    // At least two people connected.
+    Active = 1,
+
+    Ended = 2
+}
+
+public enum CallEndReason
+{
+    // Everyone left, or the last remaining participant hung up.
+    Completed = 0,
+
+    // Nobody answered before the ring timeout.
+    NoAnswer = 1,
+
+    // Every callee declined.
+    Declined = 2,
+
+    // Caller gave up before anyone answered.
+    Cancelled = 3,
+
+    // Connection lost and never recovered.
+    Failed = 4
+}

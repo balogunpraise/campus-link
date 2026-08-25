@@ -1,5 +1,10 @@
+using System.Text.Json.Serialization;
 using CampusLink.Api;
+using CampusLink.Api.Hubs;
+using CampusLink.Core.Application.Interfaces;
 using CampusLink.Infrastructure.DependencyInjection;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -8,7 +13,78 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddInfrastructure(builder.Configuration, builder.Environment);
 
 builder.Services.AddCampusLinkRateLimiting();
-builder.Services.AddControllers();
+
+builder.Services.AddSignalR()
+    .AddJsonProtocol(options =>
+    {
+        // SignalR has its own serializer — AddJsonOptions above only covers MVC.
+        // Without this the hub would demand enum ordinals while REST accepts
+        // names, so the same "type": "Video" would work on one door and fail
+        // silently on the other.
+        options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
+
+// Lets the REST chat endpoints push to connected sockets, so both doors feed
+// the same real-time stream.
+builder.Services.AddScoped<IChatNotifier, SignalRChatNotifier>();
+builder.Services.AddScoped<ICallNotifier, SignalRCallNotifier>();
+
+// Pins what Clients.User(...) resolves to, so call signaling can't be misrouted
+// by a future change to the claim set.
+builder.Services.AddSingleton<IUserIdProvider, UserIdProvider>();
+
+// Sweeps calls nobody answered — a ring timeout can't be the caller's job.
+builder.Services.AddHostedService<RingTimeoutService>();
+
+// The chat hub is the one thing the frontend's browser calls directly instead
+// of through its own same-origin proxy (a WebSocket can't ride an httpOnly
+// cookie through a Next.js Route Handler), so it's the one endpoint that needs
+// an actual CORS policy. Everything else the frontend calls server-to-server,
+// where CORS never applies.
+const string FrontendCorsPolicy = "Frontend";
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:3000"];
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(FrontendCorsPolicy, policy =>
+        policy.WithOrigins(allowedOrigins)
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials());
+});
+
+// Browsers can't set an Authorization header on a WebSocket handshake, so
+// SignalR clients pass the token as ?access_token=. Accept it for hub paths
+// only — never for the regular API surface, where it would end up in logs.
+builder.Services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
+{
+    var existing = options.Events?.OnMessageReceived;
+
+    options.Events ??= new JwtBearerEvents();
+    options.Events.OnMessageReceived = async context =>
+    {
+        if (existing is not null)
+            await existing(context);
+
+        var token = context.Request.Query["access_token"];
+
+        if (!string.IsNullOrEmpty(token) &&
+            context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+            context.Token = token;
+    };
+});
+
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Accept and emit enum names ("Global") rather than raw ordinals.
+        // Responses already render enums as strings, so without this a client
+        // couldn't round-trip a value it just received — and an API where
+        // matchScope is 2 is a worse API anyway. Numbers are still accepted on
+        // input, so existing callers don't break.
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -47,6 +123,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// Must run before authentication/authorization: a preflight OPTIONS request
+// carries no auth, so if UseCors ran after UseAuthorization the preflight
+// itself would be rejected.
+app.UseCors(FrontendCorsPolicy);
+
 app.UseRateLimiter();
 
 // Order matters: authentication populates the user, authorization checks it.
@@ -54,6 +135,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<ChatHub>("/hubs/chat").RequireCors(FrontendCorsPolicy);
+app.MapHub<CallHub>("/hubs/calls").RequireCors(FrontendCorsPolicy);
 
 // Migrate, and load the ~10k world institutions the first time the table is
 // empty, so email-domain sign-up works without any manual data entry.

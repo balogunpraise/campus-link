@@ -28,6 +28,9 @@ public static class InfrastructureServiceExtensions
         services.AddPersistence(configuration, environment);
         services.AddIdentityConfiguration();
         services.AddJwtAuthentication(configuration);
+        services.Configure<WebRtcSettings>(configuration.GetSection(WebRtcSettings.SectionName));
+        services.AddSingleton<IIceServerProvider, IceServerProvider>();
+
         services.AddRepositories();
         services.AddApplicationServices();
 
@@ -162,6 +165,9 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IInstitutionService, InstitutionService>();
         services.AddScoped<IStudyBuddyService, StudyBuddyService>();
+        services.AddScoped<IChatService, ChatService>();
+        services.AddScoped<ICallService, CallService>();
+        services.AddScoped<IPeopleService, PeopleService>();
         services.AddScoped<InstitutionSeeder>();
         services.AddScoped<SubjectSeeder>();
 
@@ -206,7 +212,10 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IStudyBuddyMatchRepository, StudyBuddyMatchRepository>();
         services.AddScoped<IStudyGroupRepository, StudyGroupRepository>();
         services.AddScoped<IReviewRepository, ReviewRepository>();
-        services.AddScoped<IMessageRepository, MessageRepository>();
+        services.AddScoped<IConversationRepository, ConversationRepository>();
+        services.AddScoped<IChatMessageRepository, ChatMessageRepository>();
+        services.AddScoped<ICallRepository, CallRepository>();
+        services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
 

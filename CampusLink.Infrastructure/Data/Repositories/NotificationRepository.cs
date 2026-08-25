@@ -4,30 +4,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CampusLink.Infrastructure.Data.Repositories;
 
-public class MessageRepository(AppDbContext context)
-    : RepositoryBase<Message>(context), IMessageRepository
-{
-    public IQueryable<Message> GetConversation(Guid userAId, Guid userBId, bool trackChanges) =>
-        FindByCondition(
-                m => (m.SenderId == userAId && m.ReceiverId == userBId) ||
-                     (m.SenderId == userBId && m.ReceiverId == userAId),
-                trackChanges)
-            .OrderBy(m => m.SentAt);
-
-    public Task<int> CountUnreadAsync(Guid userId, CancellationToken cancellationToken = default) =>
-        FindByCondition(m => m.ReceiverId == userId && !m.IsRead, false)
-            .CountAsync(cancellationToken);
-
-    public Task<int> MarkConversationReadAsync(
-        Guid readerId,
-        Guid otherUserId,
-        CancellationToken cancellationToken = default) =>
-        // Bulk update: this can touch hundreds of rows and none of them need to
-        // be materialized. Note it writes immediately, outside SaveAsync.
-        FindByCondition(m => m.ReceiverId == readerId && m.SenderId == otherUserId && !m.IsRead, false)
-            .ExecuteUpdateAsync(s => s.SetProperty(m => m.IsRead, true), cancellationToken);
-}
-
 public class NotificationRepository(AppDbContext context)
     : RepositoryBase<Notification>(context), INotificationRepository
 {

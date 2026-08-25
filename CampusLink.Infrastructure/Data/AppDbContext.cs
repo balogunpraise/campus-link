@@ -23,7 +23,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<StudyGroup> StudyGroups => Set<StudyGroup>();
     public DbSet<StudyGroupMember> StudyGroupMembers => Set<StudyGroupMember>();
     public DbSet<Review> Reviews => Set<Review>();
-    public DbSet<Message> Messages => Set<Message>();
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+    public DbSet<ConversationParticipant> ConversationParticipants => Set<ConversationParticipant>();
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+    public DbSet<Call> Calls => Set<Call>();
+    public DbSet<CallParticipant> CallParticipants => Set<CallParticipant>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
@@ -136,6 +140,26 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasIndex(u => u.PhoneNumber)
             .IsUnique()
             .HasFilter("\"PhoneNumber\" IS NOT NULL");
+
+        // People search is typo-tolerant across names, so it needs the same
+        // trigram treatment as the institution directory — otherwise every
+        // search scans every student on the platform.
+        builder.Entity<AppUser>()
+            .HasIndex(u => u.FirstName, "IX_AspNetUsers_FirstName_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
+
+        builder.Entity<AppUser>()
+            .HasIndex(u => u.LastName, "IX_AspNetUsers_LastName_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
+
+        // Named overload again: the unique username index already covers this
+        // column, and a GIN index can't be unique.
+        builder.Entity<AppUser>()
+            .HasIndex(u => u.UserName, "IX_AspNetUsers_UserName_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
 
         // ----- RefreshToken -----
         builder.Entity<RefreshToken>()
@@ -438,21 +462,102 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
                 "CK_Review_ExactlyOneRelation",
                 "(\"RelatedShareRequestId\" IS NOT NULL)::int + (\"RelatedMatchId\" IS NOT NULL)::int = 1"));
 
-        // ----- Message -----
-        builder.Entity<Message>()
+        // ----- Chat -----
+        builder.Entity<Conversation>()
+            .HasOne(c => c.CreatedBy)
+            .WithMany()
+            .HasForeignKey(c => c.CreatedById)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<Conversation>()
+            .HasOne(c => c.StudyGroup)
+            .WithMany()
+            .HasForeignKey(c => c.StudyGroupId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // The invariant that keeps a pair from ending up with two parallel
+        // threads. Filtered, because group conversations have no key.
+        builder.Entity<Conversation>()
+            .HasIndex(c => c.DirectKey)
+            .IsUnique()
+            .HasFilter("\"DirectKey\" IS NOT NULL");
+
+        builder.Entity<Conversation>()
+            .HasIndex(c => c.LastMessageAt);
+
+        builder.Entity<ConversationParticipant>()
+            .HasKey(p => new { p.ConversationId, p.UserId });
+
+        builder.Entity<ConversationParticipant>()
+            .HasOne(p => p.Conversation)
+            .WithMany(c => c.Participants)
+            .HasForeignKey(p => p.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ConversationParticipant>()
+            .HasOne(p => p.User)
+            .WithMany()
+            .HasForeignKey(p => p.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // "Every conversation this user is in" — runs on every socket connect.
+        builder.Entity<ConversationParticipant>()
+            .HasIndex(p => new { p.UserId, p.LeftAt });
+
+        builder.Entity<ChatMessage>()
+            .HasOne(m => m.Conversation)
+            .WithMany(c => c.Messages)
+            .HasForeignKey(m => m.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<ChatMessage>()
             .HasOne(m => m.Sender)
             .WithMany()
             .HasForeignKey(m => m.SenderId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.Entity<Message>()
-            .HasOne(m => m.Receiver)
+        builder.Entity<ChatMessage>()
+            .HasOne(m => m.ReplyToMessage)
             .WithMany()
-            .HasForeignKey(m => m.ReceiverId)
+            .HasForeignKey(m => m.ReplyToMessageId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // The message-history query: one conversation, newest first.
+        builder.Entity<ChatMessage>()
+            .HasIndex(m => new { m.ConversationId, m.SentAt });
+
+        // ----- Calls -----
+        builder.Entity<Call>()
+            .HasOne(c => c.Conversation)
+            .WithMany()
+            .HasForeignKey(c => c.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<Call>()
+            .HasOne(c => c.StartedBy)
+            .WithMany()
+            .HasForeignKey(c => c.StartedById)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.Entity<Message>()
-            .HasIndex(m => new { m.SenderId, m.ReceiverId, m.SentAt }); // fast conversation lookup
+        // "Is there a live call here?" on every conversation open, plus the
+        // ring-timeout sweep.
+        builder.Entity<Call>()
+            .HasIndex(c => new { c.ConversationId, c.Status, c.StartedAt });
+
+        builder.Entity<CallParticipant>()
+            .HasKey(p => new { p.CallId, p.UserId });
+
+        builder.Entity<CallParticipant>()
+            .HasOne(p => p.Call)
+            .WithMany(c => c.Participants)
+            .HasForeignKey(p => p.CallId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Entity<CallParticipant>()
+            .HasOne(p => p.User)
+            .WithMany()
+            .HasForeignKey(p => p.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // ----- Notification -----
         builder.Entity<Notification>()

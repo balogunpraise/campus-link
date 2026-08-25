@@ -21,7 +21,10 @@ public interface IRepositoryManager
     IStudyBuddyMatchRepository StudyBuddyMatches { get; }
     IStudyGroupRepository StudyGroups { get; }
     IReviewRepository Reviews { get; }
-    IMessageRepository Messages { get; }
+    IConversationRepository Conversations { get; }
+    IChatMessageRepository ChatMessages { get; }
+    ICallRepository Calls { get; }
+    IUserRepository Users { get; }
     INotificationRepository Notifications { get; }
     IRefreshTokenRepository RefreshTokens { get; }
 

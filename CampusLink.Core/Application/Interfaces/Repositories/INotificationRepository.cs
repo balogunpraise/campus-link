@@ -2,19 +2,6 @@ using CampusLink.Core.Domain.Entities;
 
 namespace CampusLink.Core.Application.Interfaces.Repositories;
 
-public interface IMessageRepository : IRepositoryBase<Message>
-{
-    // Both halves of a two-way conversation, oldest first.
-    IQueryable<Message> GetConversation(Guid userAId, Guid userBId, bool trackChanges);
-
-    Task<int> CountUnreadAsync(Guid userId, CancellationToken cancellationToken = default);
-
-    Task<int> MarkConversationReadAsync(
-        Guid readerId,
-        Guid otherUserId,
-        CancellationToken cancellationToken = default);
-}
-
 public interface INotificationRepository : IRepositoryBase<Notification>
 {
     IQueryable<Notification> GetForUser(Guid userId, bool onlyUnread, bool trackChanges);
