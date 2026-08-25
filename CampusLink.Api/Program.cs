@@ -138,9 +138,15 @@ app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat").RequireCors(FrontendCorsPolicy);
 app.MapHub<CallHub>("/hubs/calls").RequireCors(FrontendCorsPolicy);
 
-// Migrate, and load the ~10k world institutions the first time the table is
-// empty, so email-domain sign-up works without any manual data entry.
-if (app.Configuration.GetValue("Database:MigrateOnStartup", app.Environment.IsDevelopment()))
+// Migrate on startup in every environment, production included, so a deploy
+// carries its own schema change rather than needing a separate manual step.
+// Set Database__MigrateOnStartup=false to take over with `dotnet ef database
+// update` in a release step instead.
+//
+// Seeding loads the ~10k world institutions the first time the table is empty,
+// so email-domain sign-up works without manual data entry. It's a one-off:
+// subsequent boots find rows and skip.
+if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
     await app.InitializeDatabaseAsync(app.Configuration.GetValue("Database:SeedInstitutions", true));
 
 app.Run();

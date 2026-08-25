@@ -14,6 +14,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
 namespace CampusLink.Infrastructure.DependencyInjection;
@@ -174,25 +175,86 @@ public static class InfrastructureServiceExtensions
         return services;
     }
 
-    // Applies pending migrations and loads the world institutions dataset if the
-    // table is empty. Call from Program.cs at startup.
-    public static async Task<IHost> InitializeDatabaseAsync(this IHost host, bool seed)
+    // Applies pending migrations, in every environment including production, and
+    // optionally loads seed data. Throws if migration fails — a process that
+    // can't reach its schema must not start serving traffic against it.
+    public static async Task<IHost> InitializeDatabaseAsync(
+        this IHost host,
+        bool seed,
+        CancellationToken cancellationToken = default)
     {
         using var scope = host.Services.CreateScope();
         var provider = scope.ServiceProvider;
+        var logger = provider.GetRequiredService<ILogger<AppDbContext>>();
+        var context = provider.GetRequiredService<AppDbContext>();
 
-        await provider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+        // A managed database often isn't accepting connections the instant the
+        // app container starts, and a first deploy shouldn't crash-loop over a
+        // few seconds of unavailability.
+        await WaitForDatabaseAsync(context, logger, cancellationToken);
+
+        var pending = (await context.Database.GetPendingMigrationsAsync(cancellationToken)).ToList();
+
+        if (pending.Count == 0)
+        {
+            logger.LogInformation("Database schema is up to date; no migrations to apply.");
+        }
+        else
+        {
+            logger.LogInformation(
+                "Applying {Count} pending migration(s): {Migrations}",
+                pending.Count, string.Join(", ", pending));
+
+            // EF acquires a lock for the duration, so several instances booting
+            // at once won't apply the same migration twice — the others wait,
+            // then find nothing pending.
+            await context.Database.MigrateAsync(cancellationToken);
+
+            logger.LogInformation("Migrations applied successfully.");
+        }
 
         if (seed)
         {
-            await provider.GetRequiredService<InstitutionSeeder>().SeedAsync();
+            await provider.GetRequiredService<InstitutionSeeder>().SeedAsync(cancellationToken);
 
             // Subjects are the shared vocabulary study-buddy matching runs on,
             // so an empty taxonomy means the feature can't be used at all.
-            await provider.GetRequiredService<SubjectSeeder>().SeedAsync();
+            await provider.GetRequiredService<SubjectSeeder>().SeedAsync(cancellationToken);
         }
 
         return host;
+    }
+
+    private static async Task WaitForDatabaseAsync(
+        AppDbContext context,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 10;
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await context.Database.OpenConnectionAsync(cancellationToken);
+                await context.Database.CloseConnectionAsync();
+
+                return;
+            }
+            catch (Exception ex) when (attempt < maxAttempts)
+            {
+                // Linear backoff to ~30s total. Longer than that and the problem
+                // isn't startup timing, it's configuration — better to fail and
+                // surface it than to hang a deploy indefinitely.
+                var delay = TimeSpan.FromSeconds(Math.Min(attempt, 5));
+
+                logger.LogWarning(
+                    "Database not reachable (attempt {Attempt}/{Max}): {Message}. Retrying in {Delay}s.",
+                    attempt, maxAttempts, ex.Message, delay.TotalSeconds);
+
+                await Task.Delay(delay, cancellationToken);
+            }
+        }
     }
 
     public static IServiceCollection AddRepositories(this IServiceCollection services)
