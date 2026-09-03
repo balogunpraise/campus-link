@@ -51,15 +51,17 @@ public static class InfrastructureServiceExtensions
 
         services.AddDbContext<AppDbContext>(options =>
         {
-            options.UseNpgsql(connectionString, npgsql =>
+            options.UseSqlServer(connectionString, sqlServer =>
             {
-                npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName);
+                sqlServer.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName);
 
                 // Transient network blips shouldn't fail a student's request.
-                npgsql.EnableRetryOnFailure(
+                // On SQL Server this also covers Azure SQL's throttling errors,
+                // which are transient but common on lower service tiers.
+                sqlServer.EnableRetryOnFailure(
                     maxRetryCount: 3,
                     maxRetryDelay: TimeSpan.FromSeconds(5),
-                    errorCodesToAdd: null);
+                    errorNumbersToAdd: null);
             });
 
             if (environment.IsDevelopment())

@@ -1,0 +1,68 @@
+## Build output
+bin/
+obj/
+out/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+artifacts/
+publish/
+*.dll
+*.exe
+*.pdb
+*.cache
+
+## Rider / Visual Studio / VS Code
+.idea/
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.DotSettings.user
+
+## Test results and coverage
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+coverage*.info
+*.trx
+*.coverage
+*.coveragexml
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+!packages/build/
+project.lock.json
+project.fragment.lock.json
+
+## Secrets — never commit these.
+# Local overrides. appsettings.json and appsettings.Development.json stay
+# tracked (they hold placeholders and localhost defaults); anything ending in
+# .local.json is yours alone.
+appsettings.*.local.json
+secrets.json
+*.pfx
+*.key
+.env
+.env.*
+!.env.example
+
+## Nixpacks build scratch
+.nixpacks/
+
+## OS noise
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*~

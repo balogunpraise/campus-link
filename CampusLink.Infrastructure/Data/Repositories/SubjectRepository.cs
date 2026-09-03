@@ -21,7 +21,7 @@ public class SubjectRepository(AppDbContext context)
         if (!string.IsNullOrWhiteSpace(term))
         {
             var pattern = $"%{term.Trim()}%";
-            query = query.Where(s => EF.Functions.ILike(s.Name, pattern));
+            query = query.Where(s => EF.Functions.Like(s.Name, pattern));
         }
 
         if (!string.IsNullOrWhiteSpace(field))
