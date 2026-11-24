@@ -109,8 +109,8 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
-{
+// if (app.Environment.IsDevelopment())
+// {
     // Serve the SwaggerGen document (this is the one carrying the Bearer
     // security scheme) and point the UI at it. /openapi/v1.json belongs to the
     // built-in AddOpenApi() generator, which isn't registered here.
@@ -119,7 +119,7 @@ if (app.Environment.IsDevelopment())
     {
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "CampusLink API v1");
     });
-}
+//}
 
 app.UseHttpsRedirection();
 
