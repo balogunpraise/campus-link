@@ -31,6 +31,10 @@ public class InstitutionRepository(AppDbContext context)
     public Task<bool> SlugExistsAsync(string slug, CancellationToken cancellationToken = default) =>
         ExistsAsync(i => i.Slug == slug.ToLower(), cancellationToken);
 
+    // Similarity floor for fuzzy matching. Low enough that "massachusets"
+    // still reaches "Massachusetts", high enough to keep noise out.
+    private const double SimilarityThreshold = 0.25;
+
     public IQueryable<Institution> Search(string term, string countryCode, bool verifiedOnly, bool trackChanges)
     {
         var query = FindAll(trackChanges);
@@ -50,23 +54,18 @@ public class InstitutionRepository(AppDbContext context)
         var trimmed = term.Trim();
         var pattern = $"%{trimmed}%";
 
-        // Two ways a student might type their school:
-        //   LIKE on name/short name/slug — "lagos" inside "University of Lagos"
-        //   LIKE on email domain — "unilag" only appears in unilag.edu.ng, and
-        //     acronyms are what students actually type
-        //
-        // EF.Functions.Like, not ILike: ILike is Npgsql-only. SQL Server's
-        // default collation is case-insensitive, so LIKE already ignores case —
-        // but that depends on the database's collation, not on this code.
-        //
-        // The misspelling case ("massachusets" -> "Massachusetts") is gone with
-        // the move off Postgres: SQL Server has no trigram similarity, so there
-        // is nothing to rank fuzzy matches by.
+        // Three different ways a student might type their school:
+        //   ILIKE on name/short name/slug — "lagos" inside "University of Lagos"
+        //   ILIKE on email domain — "unilag" only appears in unilag.edu.ng, and
+        //     acronyms are what students actually type; trigram can't bridge
+        //     "unilag" to "University of Lagos" because they share no trigrams
+        //   trigram similarity on name — misspellings ("massachusets")
         query = query.Where(i =>
-            EF.Functions.Like(i.Name, pattern) ||
-            EF.Functions.Like(i.ShortName, pattern) ||
-            EF.Functions.Like(i.Slug, pattern) ||
-            i.EmailDomains.Any(d => EF.Functions.Like(d.Domain, pattern)));
+            EF.Functions.ILike(i.Name, pattern) ||
+            EF.Functions.ILike(i.ShortName, pattern) ||
+            EF.Functions.ILike(i.Slug, pattern) ||
+            i.EmailDomains.Any(d => EF.Functions.ILike(d.Domain, pattern)) ||
+            EF.Functions.TrigramsSimilarity(i.Name, trimmed) > SimilarityThreshold);
 
         // Rank: exact-ish prefix first, then closeness, then verified schools,
         // so the real "University of Lagos" outranks a student's typo'd copy.
@@ -74,12 +73,9 @@ public class InstitutionRepository(AppDbContext context)
         // the acronym case, and it's usually exactly what was meant.
         return query
             .OrderByDescending(i =>
-                EF.Functions.Like(i.Name, $"{trimmed}%") ||
-                i.EmailDomains.Any(d => EF.Functions.Like(d.Domain, $"{trimmed}%")))
-            // Shorter names rank first among equally-good prefix matches, which
-            // is a rough stand-in for the similarity ordering: "Data Structures"
-            // beats "Advanced Data Structures and Algorithms" for "data".
-            .ThenBy(i => i.Name.Length)
+                EF.Functions.ILike(i.Name, $"{trimmed}%") ||
+                i.EmailDomains.Any(d => EF.Functions.ILike(d.Domain, $"{trimmed}%")))
+            .ThenByDescending(i => EF.Functions.TrigramsSimilarity(i.Name, trimmed))
             .ThenByDescending(i => i.IsVerified)
             .ThenBy(i => i.Name);
     }
@@ -105,15 +101,10 @@ public class InstitutionRepository(AppDbContext context)
         var code = countryCode?.Trim().ToUpperInvariant();
 
         // Deliberately stricter than search: this blocks a duplicate being
-        // created, so it only fires on a near-identical name.
-        //
-        // On Postgres this was a 0.7 trigram-similarity threshold, which caught
-        // "Univ. of Lagos" against "University of Lagos". SQL Server can only do
-        // an exact (collation-insensitive) match, so close-but-not-identical
-        // spellings will now slip through as new institutions — the moderation
-        // queue (IsUserSubmitted) is what catches them.
+        // created, so it should only fire on a near-identical name.
         return ExistsAsync(
-            i => i.CountryCode == code && i.Name == trimmed,
+            i => i.CountryCode == code &&
+                 EF.Functions.TrigramsSimilarity(i.Name, trimmed) > 0.7,
             cancellationToken);
     }
 }

@@ -35,6 +35,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     {
         base.OnModelCreating(builder); // wires up Identity's own tables first
 
+        // Fuzzy institution search: "unilag" should find "University of Lagos"
+        // and "Massachusets" should find "Massachusetts". Typos are what create
+        // duplicate schools, so the search has to forgive them.
+        builder.HasPostgresExtension("pg_trgm");
+
         // ----- Institution -----
         builder.Entity<Institution>()
             .HasIndex(i => i.Slug)
@@ -44,17 +49,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.Entity<Institution>()
             .HasIndex(i => new { i.CountryCode, i.Name });
 
-        // Plain B-tree indexes. On Postgres these were GIN + trigram, which made
-        // both '%term%' and fuzzy similarity index-backed; SQL Server has no
-        // equivalent operator class, so these only accelerate prefix searches
-        // ('term%'). A leading-wildcard LIKE still scans.
+        // GIN + trigram ops is what makes ILIKE '%term%' and similarity()
+        // index-backed instead of a full scan of every school on the platform.
         builder.Entity<Institution>()
             .HasIndex(i => i.Name)
-            .HasDatabaseName("IX_Institutions_Name");
+            .HasDatabaseName("IX_Institutions_Name_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
 
         builder.Entity<Institution>()
             .HasIndex(i => i.ShortName)
-            .HasDatabaseName("IX_Institutions_ShortName");
+            .HasDatabaseName("IX_Institutions_ShortName_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
 
         // Moderation queue: schools students typed in themselves.
         builder.Entity<Institution>()
@@ -72,9 +79,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasIndex(d => d.Domain)
             .IsUnique();
 
-        // The unique index above already covers domain lookup and prefix search,
-        // which is all SQL Server can index for LIKE. The separate trigram index
-        // this replaced only existed to serve leading-wildcard matches.
+        // Institution search also matches domains, because that's where the
+        // acronyms students type actually live ("unilag" -> unilag.edu.ng).
+        // The unique btree above can't serve a leading-wildcard ILIKE.
+        // Named overload, otherwise EF treats this as the same index as the
+        // unique one above (indexes are keyed by property set) and tries to
+        // make that one GIN — which Postgres rejects for unique indexes.
+        builder.Entity<InstitutionEmailDomain>()
+            .HasIndex(d => d.Domain, "IX_InstitutionEmailDomains_Domain_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
 
         // ----- InstitutionPartnership -----
         builder.Entity<InstitutionPartnership>()
@@ -98,7 +112,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.Entity<InstitutionPartnership>()
             .ToTable(t => t.HasCheckConstraint(
                 "CK_InstitutionPartnership_Ordered",
-                "[InstitutionAId] < [InstitutionBId]"));
+                "\"InstitutionAId\" < \"InstitutionBId\""));
 
         // ----- Subject (shared cross-institution taxonomy) -----
         builder.Entity<Subject>()
@@ -125,15 +139,27 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.Entity<AppUser>()
             .HasIndex(u => u.PhoneNumber)
             .IsUnique()
-            .HasFilter("[PhoneNumber] IS NOT NULL");
+            .HasFilter("\"PhoneNumber\" IS NOT NULL");
 
-        // People search runs across names. B-tree only helps the prefix case on
-        // SQL Server; full-text indexes would be the way to get more.
+        // People search is typo-tolerant across names, so it needs the same
+        // trigram treatment as the institution directory — otherwise every
+        // search scans every student on the platform.
         builder.Entity<AppUser>()
-            .HasIndex(u => u.FirstName, "IX_AspNetUsers_FirstName");
+            .HasIndex(u => u.FirstName, "IX_AspNetUsers_FirstName_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
 
         builder.Entity<AppUser>()
-            .HasIndex(u => u.LastName, "IX_AspNetUsers_LastName");
+            .HasIndex(u => u.LastName, "IX_AspNetUsers_LastName_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
+
+        // Named overload again: the unique username index already covers this
+        // column, and a GIN index can't be unique.
+        builder.Entity<AppUser>()
+            .HasIndex(u => u.UserName, "IX_AspNetUsers_UserName_Trgm")
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
 
         // ----- RefreshToken -----
         builder.Entity<RefreshToken>()
@@ -253,8 +279,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             .ToTable(t => t.HasCheckConstraint(
                 "CK_ShareRequest_ReturnAfterHandover",
                 """
-                ([BorrowerConfirmedReturnAt] IS NULL AND [OwnerConfirmedReturnAt] IS NULL)
-                OR ([OwnerConfirmedHandoverAt] IS NOT NULL AND [BorrowerConfirmedReceiptAt] IS NOT NULL)
+                ("BorrowerConfirmedReturnAt" IS NULL AND "OwnerConfirmedReturnAt" IS NULL)
+                OR ("OwnerConfirmedHandoverAt" IS NOT NULL AND "BorrowerConfirmedReceiptAt" IS NOT NULL)
                 """));
 
         // ReturnedAt is the closed-loan marker, so it may only be set once both
@@ -263,8 +289,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             .ToTable(t => t.HasCheckConstraint(
                 "CK_ShareRequest_ReturnedAtRequiresBothConfirmations",
                 """
-                [ReturnedAt] IS NULL
-                OR ([BorrowerConfirmedReturnAt] IS NOT NULL AND [OwnerConfirmedReturnAt] IS NOT NULL)
+                "ReturnedAt" IS NULL
+                OR ("BorrowerConfirmedReturnAt" IS NOT NULL AND "OwnerConfirmedReturnAt" IS NOT NULL)
                 """));
 
         // ----- StudyBuddyProfile (1:1 with AppUser) -----
@@ -345,15 +371,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.Entity<StudyBuddyMatch>()
             .ToTable(t => t.HasCheckConstraint(
                 "CK_StudyBuddyMatch_NotSelf",
-                "[RequesterId] <> [RecipientId]"));
+                "\"RequesterId\" <> \"RecipientId\""));
 
         // A cross-institution pairing can't be pinned to one school's course.
         builder.Entity<StudyBuddyMatch>()
             .ToTable(t => t.HasCheckConstraint(
                 "CK_StudyBuddyMatch_NoCrossInstitutionCourse",
-                // SQL Server has no boolean type — a bit column has to be
-                // compared explicitly rather than used as a predicate.
-                "NOT ([IsCrossInstitution] = 1 AND [CourseId] IS NOT NULL)"));
+                "NOT (\"IsCrossInstitution\" AND \"CourseId\" IS NOT NULL)"));
 
         // ----- StudyGroup / StudyGroupMember (many-to-many) -----
         builder.Entity<StudyGroup>()
@@ -430,18 +454,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.Entity<Review>()
             .ToTable(t => t.HasCheckConstraint(
                 "CK_Review_Rating_Range",
-                "[Rating] BETWEEN 1 AND 5"));
+                "\"Rating\" BETWEEN 1 AND 5"));
 
         // Exactly one of RelatedShareRequestId / RelatedMatchId should be set.
         builder.Entity<Review>()
             .ToTable(t => t.HasCheckConstraint(
                 "CK_Review_ExactlyOneRelation",
-                // Postgres could cast a boolean straight to int; SQL Server
-                // needs CASE to turn each null-check into a countable 0/1.
-                """
-                (CASE WHEN [RelatedShareRequestId] IS NOT NULL THEN 1 ELSE 0 END)
-                + (CASE WHEN [RelatedMatchId] IS NOT NULL THEN 1 ELSE 0 END) = 1
-                """));
+                "(\"RelatedShareRequestId\" IS NOT NULL)::int + (\"RelatedMatchId\" IS NOT NULL)::int = 1"));
 
         // ----- Chat -----
         builder.Entity<Conversation>()
@@ -461,7 +480,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
         builder.Entity<Conversation>()
             .HasIndex(c => c.DirectKey)
             .IsUnique()
-            .HasFilter("[DirectKey] IS NOT NULL");
+            .HasFilter("\"DirectKey\" IS NOT NULL");
 
         builder.Entity<Conversation>()
             .HasIndex(c => c.LastMessageAt);
@@ -497,20 +516,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasForeignKey(m => m.SenderId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // ClientSetNull, not SetNull. A self-referencing FK with a database-level
-        // delete action, combined with the cascade from Conversations above,
-        // gives SQL Server two cascade paths into this table and it refuses to
-        // create the constraint (error 1785). Postgres allowed it.
-        //
-        // ClientSetNull emits ON DELETE NO ACTION, so the database no longer
-        // nulls the column itself; EF clears it for entities it has loaded.
-        // Deleting a conversation still removes its messages in one cascade,
-        // which satisfies the self-reference because the replies go with it.
         builder.Entity<ChatMessage>()
             .HasOne(m => m.ReplyToMessage)
             .WithMany()
             .HasForeignKey(m => m.ReplyToMessageId)
-            .OnDelete(DeleteBehavior.ClientSetNull);
+            .OnDelete(DeleteBehavior.SetNull);
 
         // The message-history query: one conversation, newest first.
         builder.Entity<ChatMessage>()
