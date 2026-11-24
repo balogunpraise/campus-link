@@ -164,7 +164,8 @@ namespace CampusLink.Infrastructure.Data.Migrations
                     b.HasIndex("InstitutionId", "MembershipStatus");
 
                     b.HasIndex("InstitutionId", "StudentNumber")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"StudentNumber\" IS NOT NULL");
 
                     b.HasIndex(new[] { "FirstName" }, "IX_AspNetUsers_FirstName_Trgm");
 

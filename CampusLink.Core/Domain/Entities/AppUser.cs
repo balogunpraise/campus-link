@@ -10,7 +10,9 @@ public class AppUser : IdentityUser<Guid>
     public string LastName { get; set; } = string.Empty;
 
     // Only unique within an institution — two schools can issue the same number.
-    public string StudentNumber { get; set; } = string.Empty;
+    // Null when the student didn't give one: the uniqueness index skips nulls,
+    // so an empty string here would collide across every such account.
+    public string? StudentNumber { get; set; }
     public string Department { get; set; } = string.Empty;
     public int YearOfStudy { get; set; }
     public string Bio { get; set; }

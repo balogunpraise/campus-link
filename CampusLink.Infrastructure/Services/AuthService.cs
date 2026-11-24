@@ -50,6 +50,17 @@ public class AuthService(
 
         var (institution, isDomainVerified) = institutionResult.Value;
 
+        // Unique per institution, so this can only be checked once the school
+        // is known. Without it the index violation surfaces as a 500.
+        var studentNumber = NormalizeOptional(request.StudentNumber);
+        if (studentNumber is not null &&
+            await userManager.Users.AnyAsync(
+                u => u.InstitutionId == institution.Id && u.StudentNumber == studentNumber,
+                cancellationToken))
+            return Result<AuthResponse>.Failure(
+                AuthErrorCode.Conflict,
+                "That student number is already registered at this institution.");
+
         var user = new AppUser
         {
             UserName = userName,
@@ -57,7 +68,7 @@ public class AuthService(
             PhoneNumber = phone,
             FirstName = request.FirstName.Trim(),
             LastName = request.LastName.Trim(),
-            StudentNumber = request.StudentNumber?.Trim() ?? string.Empty,
+            StudentNumber = studentNumber,
             Department = request.Department?.Trim() ?? string.Empty,
             YearOfStudy = request.YearOfStudy,
             InstitutionId = institution.Id,
@@ -243,6 +254,11 @@ public class AuthService(
     }
 
     
+    // Blank and "not given" are the same thing to a student, but not to a
+    // unique index — so optional fields are stored as null, never "".
+    private static string NormalizeOptional(string value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     private static string NormalizePhone(string value)
     {
         if (string.IsNullOrWhiteSpace(value))

@@ -126,10 +126,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasForeignKey(u => u.InstitutionId)
             .OnDelete(DeleteBehavior.Restrict); // never wipe out students with a school
 
-        // Student numbers are only unique inside a school.
+        // Student numbers are only unique inside a school, and only where one
+        // was given — it's optional at registration, so without the filter
+        // every student who skipped it would collide with the next.
         builder.Entity<AppUser>()
             .HasIndex(u => new { u.InstitutionId, u.StudentNumber })
-            .IsUnique();
+            .IsUnique()
+            .HasFilter("\"StudentNumber\" IS NOT NULL");
 
         builder.Entity<AppUser>()
             .HasIndex(u => new { u.InstitutionId, u.MembershipStatus });
